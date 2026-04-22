@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>NavGrid — Dijkstra Pathfinder</title>
+  <style>
+    :root {
+      --bg:            #1a1c22;
+      --surface:       #22252e;
+      --surface2:      #2a2e3a;
+      --border:        #323645;
+      --text:          #e8eaf0;
+      --text-muted:    #7b8098;
+      --col-unvisited: #2f3347;
+      --col-start:     #10b981;
+      --col-end:       #ef4444;
+      --col-visited:   #f59e0b;
+      --col-path:      #3b82f6;
+      --col-obstacle:  #111318;
+      --col-current:   #f97316;
+      --accent:        #3b82f6;
+      --accent-light:  #60a5fa;
+      --radius:        10px;
+      --shadow:        0 4px 24px rgba(0,0,0,.45);
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* NAVBAR */
+    .navbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 24px; height: 56px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      flex-shrink: 0; z-index: 10;
+    }
+    .navbar-brand { display: flex; align-items: center; gap: 10px; }
+    .brand-icon   { font-size: 22px; color: var(--accent-light); }
+    .brand-name   { font-size: 18px; font-weight: 700; letter-spacing: -.3px; }
+    .brand-tag    {
+      font-size: 11px; color: var(--text-muted);
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 20px; padding: 2px 10px;
+    }
+    .navbar-info  { display: flex; gap: 10px; }
+    .info-chip    {
+      font-size: 12px; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 20px;
+      padding: 4px 14px; color: var(--text-muted);
+    }
+    .info-chip strong { color: var(--accent-light); }
+
+    /* LAYOUT */
+    .app-layout { display: flex; flex: 1; overflow: hidden; }
+
+    /* SIDE PANEL */
+    .side-panel {
+      width: 280px; flex-shrink: 0;
+      background: var(--surface); border-right: 1px solid var(--border);
+      overflow-y: auto; display: flex; flex-direction: column;
+    }
+    .side-panel::-webkit-scrollbar { width: 4px; }
+    .side-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .panel-section { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+    .panel-section:last-child { border-bottom: none; }
+    .panel-title {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.2px; color: var(--text-muted); margin-bottom: 14px;
+    }
+
+    /* Route fields */
+    .route-fields { display: flex; flex-direction: column; gap: 0; }
+    .route-field {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 12px; background: var(--surface2);
+      border-radius: var(--radius); border: 1px solid var(--border);
+    }
+    .route-line { width: 2px; height: 14px; background: var(--border); margin-left: 20px; }
+    .field-dot  { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+    .dot-start  { background: var(--col-start); }
+    .dot-end    { background: var(--col-end); }
+    .field-content { display: flex; flex-direction: column; gap: 2px; }
+    .field-content label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .8px; }
+    .field-content span  { font-size: 13px; color: var(--text); }
+
+    /* Speed slider */
+    .speed-row   { display: flex; align-items: center; gap: 10px; }
+    .speed-label { font-size: 12px; color: var(--text-muted); flex: 1; }
+    .speed-slider {
+      flex: 1; -webkit-appearance: none;
+      height: 4px; background: var(--border); border-radius: 2px; outline: none;
+    }
+    .speed-slider::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 14px; height: 14px;
+      border-radius: 50%; background: var(--accent); cursor: pointer;
+    }
+    #speed-val { font-size: 12px; color: var(--accent-light); width: 50px; text-align: right; }
+
+    /* Buttons */
+    .btn-section { display: flex; flex-direction: column; gap: 10px; }
+    .btn {
+      display: flex; align-items: center; justify-content: center;
+      gap: 8px; padding: 11px 0; border-radius: var(--radius);
+      font-size: 13px; font-weight: 600; border: none; cursor: pointer;
+      transition: filter .15s, transform .1s;
+    }
+    .btn:hover   { filter: brightness(1.12); }
+    .btn:active  { transform: scale(.97); }
+    .btn:disabled{ opacity: .4; cursor: not-allowed; filter: none; }
+    .btn-primary   { background: #3b82f6; color: #fff; }
+    .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-obstacle  { background: #7c3aed; color: #fff; }
+    .btn-obstacle.active { box-shadow: 0 0 0 2px #fff3, 0 0 14px #7c3aed88; }
+
+    /* Legend */
+    .legend { display: flex; flex-direction: column; gap: 8px; }
+    .legend-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+    .legend-swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+    .sw-start     { background: var(--col-start); }
+    .sw-end       { background: var(--col-end); }
+    .sw-visited   { background: var(--col-visited); }
+    .sw-path      { background: var(--col-path); }
+    .sw-obstacle  { background: var(--col-obstacle); border: 1px solid var(--border); }
+    .sw-unvisited { background: var(--col-unvisited); }
+
+    /* Stats */
+    .stat-row {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--border);
+    }
+    .stat-row:last-child { border-bottom: none; }
+    .stat-row span   { color: var(--text-muted); }
+    .stat-row strong { color: var(--text); }
+
+    /* GRID AREA */
+    .grid-area {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      overflow: hidden; padding: 20px;
+    }
+    .grid-container { display: grid; gap: 3px; }
+
+    /* NODE CELLS */
+    .node {
+      width: 44px; height: 44px; border-radius: 6px;
+      background: var(--col-unvisited);
+      border: 1px solid rgba(255,255,255,.04);
+      cursor: pointer; position: relative;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .18s, transform .12s, box-shadow .18s;
+      user-select: none;
+    }
+    .node-dist {
+      font-size: 9px; font-weight: 700; color: rgba(255,255,255,.5);
+      pointer-events: none; position: absolute; bottom: 3px; right: 4px;
+    }
+    .node-id {
+      font-size: 9px; color: rgba(255,255,255,.18);
+      pointer-events: none; position: absolute; top: 3px; left: 4px;
+    }
+    .node:hover:not(.obstacle) {
+      transform: scale(1.08);
+      box-shadow: 0 2px 12px rgba(0,0,0,.5);
+      border-color: rgba(255,255,255,.15);
+    }
+    .node.start {
+      background: var(--col-start); border-color: #059669;
+      box-shadow: 0 0 0 3px #10b98133;
+    }
+    .node.end {
+      background: var(--col-end); border-color: #dc2626;
+      box-shadow: 0 0 0 3px #ef444433;
+    }
+    .node.obstacle {
+      background: var(--col-obstacle); cursor: crosshair;
+      border-color: #0f1114; transform: none !important;
+      box-shadow: inset 0 0 6px rgba(0,0,0,.6);
+    }
+    .node.visited {
+      background: var(--col-visited); border-color: #d97706;
+      animation: visitPop .22s ease;
+    }
+    .node.path {
+      background: var(--col-path); border-color: #1d4ed8;
+      box-shadow: 0 0 0 2px #3b82f655, 0 0 14px #3b82f644;
+      animation: pathPulse .35s ease;
+    }
+    .node.current {
+      background: var(--col-current); border-color: #ea580c;
+      box-shadow: 0 0 0 3px #f9731644, 0 0 18px #f9731655;
+      transform: scale(1.14); z-index: 2;
+    }
+    @keyframes visitPop {
+      0%  { transform: scale(1);    }
+      50% { transform: scale(1.12); }
+      100%{ transform: scale(1);    }
+    }
+    @keyframes pathPulse {
+      0%  { transform: scale(1);    }
+      40% { transform: scale(1.18); }
+      100%{ transform: scale(1);    }
+    }
+
+    /* HINT */
+    .grid-hint {
+      margin-top: 14px; font-size: 13px; color: var(--text-muted);
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 20px; padding: 6px 18px; text-align: center;
+    }
+
+    /* TOAST */
+    .toast {
+      position: fixed; bottom: 28px; left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); font-size: 13px; padding: 10px 22px;
+      border-radius: 40px; box-shadow: var(--shadow);
+      opacity: 0; transition: transform .3s cubic-bezier(.34,1.56,.64,1), opacity .3s;
+      pointer-events: none; z-index: 100; white-space: nowrap;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* RESPONSIVE */
+    @media (max-width: 700px) {
+      .app-layout { flex-direction: column; }
+      .side-panel { width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+      .grid-area  { padding: 10px; }
+      .node       { width: 28px; height: 28px; border-radius: 4px; }
+      .node-id, .node-dist { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAVBAR -->
+  <header class="navbar">
+    <div class="navbar-brand">
+      <div class="brand-icon">◈</div>
+      <span class="brand-name">NavGrid</span>
+      <span class="brand-tag">Dijkstra Pathfinder</span>
+    </div>
+    <div class="navbar-info">
+      <div class="info-chip" id="chip-mode">Mode: <strong>Select Start</strong></div>
+      <div class="info-chip" id="chip-dist" style="display:none">Distance: <strong id="chip-dist-val">—</strong></div>
+    </div>
+  </header>
+
+  <!-- MAIN -->
+  <main class="app-layout">
+
+    <!-- SIDE PANEL -->
+    <aside class="side-panel">
+
+      <section class="panel-section">
+        <h2 class="panel-title">Route Planner</h2>
+        <div class="route-fields">
+          <div class="route-field">
+            <div class="field-dot dot-start"></div>
+            <div class="field-content">
+              <label>Start Node</label>
+              <span id="label-start">Click a node on the grid</span>
+            </div>
+          </div>
+          <div class="route-line"></div>
+          <div class="route-field">
+            <div class="field-dot dot-end"></div>
+            <div class="field-content">
+              <label>Destination</label>
+              <span id="label-end">Click a node on the grid</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel-section">
+        <h2 class="panel-title">Animation Speed</h2>
+        <div class="speed-row">
+          <span class="speed-label">Slow ← → Fast</span>
+          <input type="range" id="speed-slider" min="50" max="600" value="300" class="speed-slider"/>
+          <span id="speed-val">300ms</span>
+        </div>
+      </section>
+
+      <section class="panel-section btn-section">
+        <button class="btn btn-primary"   id="btn-simulate"><span>▶</span> Start Simulation</button>
+        <button class="btn btn-secondary" id="btn-reset">   <span>↺</span> Reset</button>
+        <button class="btn btn-obstacle"  id="btn-obstacle"><span>⛔</span> Toggle Obstacle Mode</button>
+      </section>
+
+      <section class="panel-section">
+        <h2 class="panel-title">Legend</h2>
+        <div class="legend">
+          <div class="legend-row"><div class="legend-swatch sw-start"></div><span>Start Node (Green)</span></div>
+          <div class="legend-row"><div class="legend-swatch sw-end"></div><span>Destination (Red)</span></div>
+          <div class="legend-row"><div class="legend-swatch sw-visited"></div><span>Visited (Yellow)</span></div>
+          <div class="legend-row"><div class="legend-swatch sw-path"></div><span>Shortest Path (Blue)</span></div>
+          <div class="legend-row"><div class="legend-swatch sw-obstacle"></div><span>Obstacle / Blocked</span></div>
+          <div class="legend-row"><div class="legend-swatch sw-unvisited"></div><span>Unvisited (Grey)</span></div>
+        </div>
+      </section>
+
+      <section class="panel-section" id="stats-box" style="display:none">
+        <h2 class="panel-title">Results</h2>
+        <div class="stat-row"><span>Nodes Visited</span><strong id="stat-visited">—</strong></div>
+        <div class="stat-row"><span>Path Length</span>  <strong id="stat-path">—</strong></div>
+        <div class="stat-row"><span>Total Distance</span><strong id="stat-dist">—</strong></div>
+        <div class="stat-row"><span>Status</span>       <strong id="stat-status">—</strong></div>
+      </section>
+
+    </aside>
+
+    <!-- GRID -->
+    <section class="grid-area">
+      <div class="grid-container" id="grid-container"></div>
+      <div class="grid-hint" id="grid-hint">Click any node to set your <strong>Start</strong> point</div>
+    </section>
+
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    /* ================================================
+       NavGrid — Dijkstra's Algorithm Visualizer
+       ================================================
+
+       HOW TO USE:
+         1. Click any grey node  → sets the START  (green)
+         2. Click another node   → sets the END    (red)
+         3. Click "Start Simulation" → watch Dijkstra run:
+              Orange flash = node currently being processed
+              Yellow       = node has been visited/explored
+              Blue         = the final shortest path
+         4. "Toggle Obstacle Mode" then click nodes
+            to block or unblock roads (dark cells).
+         5. "Reset" rebuilds the grid with new random weights.
+
+       ALGORITHM OVERVIEW:
+         Dijkstra's algorithm finds the shortest path between
+         two nodes in a weighted graph. It works by:
+           • Assigning distance ∞ to all nodes, 0 to start
+           • Using a priority queue to always process the
+             node with the current smallest known distance
+           • Relaxing (updating) neighbour distances when
+             a shorter route is found
+           • Stopping when the destination is reached
+           • Backtracking via "prev" pointers to get the path
+    */
+
+    // ── CONFIG ──────────────────────────────────────
+    const ROWS = 12;   // grid rows
+    const COLS = 18;   // grid columns
+
+    // ── STATE ────────────────────────────────────────
+    let grid         = [];       // 2-D array of node objects
+    let flatNodes    = [];       // 1-D version of the same nodes
+    let startNode    = null;     // chosen start node
+    let endNode      = null;     // chosen end node
+    let mode         = 'start';  // 'start' | 'end' | 'ready' | 'running' | 'done'
+    let obstacleMode = false;    // true while obstacle toggle is on
+    let animating    = false;    // locks UI during animation
+    let animSpeed    = 300;      // ms delay between animation frames
+
+    // ── DOM ─────────────────────────────────────────
+    const gridContainer = document.getElementById('grid-container');
+    const btnSimulate   = document.getElementById('btn-simulate');
+    const btnReset      = document.getElementById('btn-reset');
+    const btnObstacle   = document.getElementById('btn-obstacle');
+    const speedSlider   = document.getElementById('speed-slider');
+    const speedVal      = document.getElementById('speed-val');
+    const labelStart    = document.getElementById('label-start');
+    const labelEnd      = document.getElementById('label-end');
+    const chipMode      = document.getElementById('chip-mode');
+    const chipDist      = document.getElementById('chip-dist');
+    const chipDistVal   = document.getElementById('chip-dist-val');
+    const gridHint      = document.getElementById('grid-hint');
+    const statsBox      = document.getElementById('stats-box');
+    const statVisited   = document.getElementById('stat-visited');
+    const statPath      = document.getElementById('stat-path');
+    const statDist      = document.getElementById('stat-dist');
+    const statStatus    = document.getElementById('stat-status');
+    const toastEl       = document.getElementById('toast');
+
+    // ── TOAST ───────────────────────────────────────
+    let toastTimer = null;
+    function showToast(msg, ms = 2400) {
+      toastEl.textContent = msg;
+      toastEl.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms);
+    }
+
+    // ── SLEEP (async pause for animation) ───────────
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+    // ── BUILD GRID ──────────────────────────────────
+    function buildGrid() {
+      grid = []; flatNodes = [];
+      gridContainer.innerHTML = '';
+      gridContainer.style.gridTemplateColumns = `repeat(${COLS}, 44px)`;
+
+      for (let r = 0; r < ROWS; r++) {
+        const row = [];
+        for (let c = 0; c < COLS; c++) {
+          const id = r * COLS + c;
+
+          // Node data object (holds all algorithm state)
+          const node = {
+            id, row: r, col: c,
+            isObstacle: false,
+            el: null, distEl: null,
+            dist: Infinity, prev: null, visited: false,
+          };
+
+          // DOM cell
+          const el = document.createElement('div');
+          el.className = 'node';
+          el.dataset.id = id;
+
+          // Tiny node ID label (top-left corner)
+          const idLbl = document.createElement('span');
+          idLbl.className = 'node-id';
+          idLbl.textContent = id;
+          el.appendChild(idLbl);
+
+          // Distance label (bottom-right) — updated live by algorithm
+          const distLbl = document.createElement('span');
+          distLbl.className = 'node-dist';
+          distLbl.textContent = '∞';
+          el.appendChild(distLbl);
+
+          el.addEventListener('click', () => handleNodeClick(node));
+
+          node.el = el;
+          node.distEl = distLbl;
+          row.push(node);
+          flatNodes.push(node);
+          gridContainer.appendChild(el);
+        }
+        grid.push(row);
+      }
+
+      buildEdgeWeights();
+    }
+
+    // ── EDGE WEIGHTS ────────────────────────────────
+    // Every pair of adjacent nodes gets a random integer
+    // weight 1–9, representing the "road distance".
+    let edgeWeights = new Map();
+
+    // Use smaller-id-first key so A→B == B→A
+    const edgeKey = (a, b) => a < b ? `${a}-${b}` : `${b}-${a}`;
+
+    function buildEdgeWeights() {
+      edgeWeights = new Map();
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const n = grid[r][c];
+          if (c+1 < COLS) edgeWeights.set(edgeKey(n.id, grid[r][c+1].id), Math.floor(Math.random()*9)+1);
+          if (r+1 < ROWS) edgeWeights.set(edgeKey(n.id, grid[r+1][c].id), Math.floor(Math.random()*9)+1);
+        }
+      }
+    }
+
+    const getWeight = (a, b) => edgeWeights.get(edgeKey(a, b)) || 1;
+
+    // ── NEIGHBOURS ──────────────────────────────────
+    // Returns valid (in-bounds, non-obstacle) adjacent nodes.
+    function getNeighbours(node) {
+      const nb = [];
+      for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+        const nr = node.row + dr, nc = node.col + dc;
+        if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && !grid[nr][nc].isObstacle)
+          nb.push(grid[nr][nc]);
+      }
+      return nb;
+    }
+
+    // ── MIN-HEAP PRIORITY QUEUE ──────────────────────
+    // Stores { dist, node } pairs.
+    // Always gives back the node with the SMALLEST distance.
+    // This is the key data structure that makes Dijkstra efficient.
+    class MinHeap {
+      constructor() { this.h = []; }
+      get size() { return this.h.length; }
+
+      push(item) {
+        this.h.push(item);
+        let i = this.h.length - 1;
+        while (i > 0) {
+          const p = (i-1) >> 1;
+          if (this.h[p].dist <= this.h[i].dist) break;
+          [this.h[p], this.h[i]] = [this.h[i], this.h[p]];
+          i = p;
+        }
+      }
+
+      pop() {
+        const top = this.h[0], last = this.h.pop();
+        if (this.h.length > 0) {
+          this.h[0] = last;
+          let i = 0;
+          while (true) {
+            let s = i, l = 2*i+1, r = 2*i+2;
+            if (l < this.h.length && this.h[l].dist < this.h[s].dist) s = l;
+            if (r < this.h.length && this.h[r].dist < this.h[s].dist) s = r;
+            if (s === i) break;
+            [this.h[s], this.h[i]] = [this.h[i], this.h[s]];
+            i = s;
+          }
+        }
+        return top;
+      }
+    }
+
+    // ── DIJKSTRA (animated, async) ──────────────────
+    async function runDijkstra() {
+      if (!startNode || !endNode) return showToast('⚠️  Select both Start and Destination first.');
+      if (startNode === endNode)  return showToast('⚠️  Start and Destination must differ.');
+
+      // Lock UI while running
+      animating = true; mode = 'running';
+      updateModeChip();
+      btnSimulate.disabled = btnObstacle.disabled = true;
+      statsBox.style.display = 'none';
+
+      // STEP 1 — Initialise: all distances = ∞, start = 0
+      for (const n of flatNodes) {
+        n.dist = Infinity; n.prev = null; n.visited = false;
+        n.el.classList.remove('visited','path','current');
+        n.distEl.textContent = '∞';
+      }
+      startNode.dist = 0;
+      startNode.distEl.textContent = '0';
+
+      const pq = new MinHeap();
+      pq.push({ dist: 0, node: startNode });
+      let visitedCount = 0;
+
+      // STEP 2 — Process nodes by shortest known distance
+      while (pq.size > 0) {
+        const { dist: d, node: cur } = pq.pop();
+
+        // Skip stale heap entries
+        if (d > cur.dist || cur.visited) continue;
+
+        cur.visited = true;
+        visitedCount++;
+
+        // Animate: orange flash = "currently processing"
+        if (cur !== startNode && cur !== endNode) {
+          cur.el.classList.add('current');
+        }
+        await sleep(animSpeed * 0.55);
+
+        // Settle to yellow = "visited / explored"
+        if (cur !== startNode && cur !== endNode) {
+          cur.el.classList.remove('current');
+          cur.el.classList.add('visited');
+        }
+
+        if (cur === endNode) break; // reached destination!
+
+        // STEP 3 — Relax each neighbour's distance
+        for (const nb of getNeighbours(cur)) {
+          if (nb.visited) continue;
+          const newDist = cur.dist + getWeight(cur.id, nb.id);
+          if (newDist < nb.dist) {
+            nb.dist = newDist;
+            nb.prev = cur;                       // remember where we came from
+            nb.distEl.textContent = newDist;     // show updated distance live
+            pq.push({ dist: newDist, node: nb });
+          }
+        }
+
+        await sleep(animSpeed);
+      }
+
+      // STEP 4 — Backtrack via prev pointers to get the path
+      const path = [];
+      let cursor = endNode;
+      while (cursor) { path.unshift(cursor); cursor = cursor.prev; }
+
+      const reachable = path[0] === startNode;
+
+      if (reachable) {
+        // Animate the blue path trace
+        for (const n of path) {
+          n.el.classList.remove('visited','current');
+          n.el.classList.add('path');
+          await sleep(animSpeed * 0.65);
+        }
+        const d = endNode.dist;
+        statVisited.textContent = visitedCount;
+        statPath.textContent    = path.length + ' nodes';
+        statDist.textContent    = d + ' units';
+        statStatus.textContent  = '✅ Path found';
+        chipDistVal.textContent = d + ' units';
+        chipDist.style.display  = 'block';
+        showToast(`✅ Shortest path found! Distance: ${d} units`);
+      } else {
+        statVisited.textContent = visitedCount;
+        statPath.textContent    = '—';
+        statDist.textContent    = '∞';
+        statStatus.textContent  = '❌ No path — blocked';
+        showToast('❌ No path exists — try removing some obstacles.');
+      }
+
+      statsBox.style.display = 'block';
+      mode = 'done'; updateModeChip();
+      animating = false;
+      btnSimulate.disabled = btnObstacle.disabled = false;
+    }
+
+    // ── HANDLE NODE CLICK ───────────────────────────
+    function handleNodeClick(node) {
+      if (animating) return;
+
+      // Obstacle mode: toggle block state
+      if (obstacleMode) {
+        if (node === startNode || node === endNode) return;
+        node.isObstacle = !node.isObstacle;
+        node.el.classList.toggle('obstacle', node.isObstacle);
+        return;
+      }
+
+      if (mode === 'start') {
+        if (node.isObstacle) return;
+        if (startNode) startNode.el.classList.remove('start');
+        startNode = node;
+        node.el.classList.add('start');
+        labelStart.textContent = `Node ${node.id}  (row ${node.row}, col ${node.col})`;
+        mode = 'end';
+        gridHint.innerHTML = 'Now click a node to set your <strong>Destination</strong>';
+
+      } else if (mode === 'end') {
+        if (node.isObstacle) return;
+        if (node === startNode) return showToast('⚠️  Choose a different node for Destination.');
+        if (endNode) endNode.el.classList.remove('end');
+        endNode = node;
+        node.el.classList.add('end');
+        labelEnd.textContent = `Node ${node.id}  (row ${node.row}, col ${node.col})`;
+        mode = 'ready';
+        gridHint.textContent = 'Press "Start Simulation" to find the shortest path!';
+
+      } else if (mode === 'ready' || mode === 'done') {
+        // Clicking a fresh node re-starts selection
+        if (node === startNode || node === endNode || node.isObstacle) return;
+        if (startNode) startNode.el.classList.remove('start');
+        if (endNode)   endNode.el.classList.remove('end');
+        startNode = endNode = null;
+        softReset();
+        chipDist.style.display = 'none';
+        statsBox.style.display = 'none';
+        startNode = node;
+        node.el.classList.add('start');
+        labelStart.textContent = `Node ${node.id}  (row ${node.row}, col ${node.col})`;
+        labelEnd.textContent   = 'Click a node on the grid';
+        mode = 'end';
+        gridHint.innerHTML = 'Now click a node to set your <strong>Destination</strong>';
+      }
+
+      updateModeChip();
+    }
+
+    // ── SOFT RESET (clear visuals, keep obstacles) ──
+    function softReset() {
+      for (const n of flatNodes) {
+        n.dist = Infinity; n.prev = null; n.visited = false;
+        n.el.classList.remove('visited','path','current','start','end');
+        n.distEl.textContent = '∞';
+      }
+    }
+
+    // ── FULL RESET ──────────────────────────────────
+    function fullReset() {
+      if (animating) return;
+      startNode = endNode = null;
+      mode = 'start'; obstacleMode = false;
+      btnObstacle.classList.remove('active');
+      chipDist.style.display = statsBox.style.display = 'none';
+      labelStart.textContent = labelEnd.textContent = 'Click a node on the grid';
+      gridHint.innerHTML = 'Click any node to set your <strong>Start</strong> point';
+      buildGrid();
+      updateModeChip();
+    }
+
+    // ── UPDATE NAVBAR MODE CHIP ─────────────────────
+    function updateModeChip() {
+      const labels = { start:'Select Start', end:'Select Destination',
+                       ready:'Ready to Simulate', running:'Simulating…', done:'Done' };
+      chipMode.innerHTML = `Mode: <strong>${labels[mode] || mode}</strong>`;
+    }
+
+    // ── EVENT LISTENERS ─────────────────────────────
+    btnSimulate.addEventListener('click', () => {
+      if (animating) return;
+      if (mode !== 'ready' && mode !== 'done')
+        return showToast('⚠️  Select both Start and Destination first.');
+      if (mode === 'done') {
+        softReset();
+        if (startNode) startNode.el.classList.add('start');
+        if (endNode)   endNode.el.classList.add('end');
+      }
+      runDijkstra();
+    });
+
+    btnReset.addEventListener('click', fullReset);
+
+    btnObstacle.addEventListener('click', () => {
+      if (animating) return;
+      obstacleMode = !obstacleMode;
+      btnObstacle.classList.toggle('active', obstacleMode);
+      showToast(obstacleMode
+        ? '🚧 Obstacle mode ON — click nodes to block / unblock'
+        : '✅ Obstacle mode OFF');
+    });
+
+    speedSlider.addEventListener('input', () => {
+      // Invert: slider right = faster = smaller delay
+      animSpeed = +speedSlider.max + +speedSlider.min - +speedSlider.value;
+      speedVal.textContent = animSpeed + 'ms';
+    });
+
+    // ── INIT ────────────────────────────────────────
+    buildGrid();
+    updateModeChip();
+    animSpeed = +speedSlider.max + +speedSlider.min - +speedSlider.value;
+    speedVal.textContent = animSpeed + 'ms';
+  </script>
+</body>
+</html>
